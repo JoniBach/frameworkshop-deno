@@ -37,7 +37,7 @@ type StoredUser = {
 
 function cors(headers: Headers) {
   headers.set('access-control-allow-origin', '*');
-  headers.set('access-control-allow-methods', 'POST, GET, OPTIONS');
+  headers.set('access-control-allow-methods', 'POST, GET, DELETE, OPTIONS');
   headers.set('access-control-allow-headers', 'content-type');
 }
 
@@ -241,6 +241,35 @@ async function handleAuthLogin(req: Request, headers: Headers): Promise<Response
   return json({ status: 'ok', user }, 200, headers);
 }
 
+async function handleAuthDeleteUser(req: Request, headers: Headers): Promise<Response> {
+  if (req.method !== 'DELETE') {
+    return json({ error: 'Method Not Allowed' }, 405, headers);
+  }
+
+  const parsed = await readJsonBody(req, headers);
+  if (parsed.error) return parsed.error;
+
+  const body = parsed.body;
+  if (!body || typeof body !== 'object') {
+    return json({ error: 'Bad Request: expected JSON object' }, 400, headers);
+  }
+
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return json({ error: 'Bad Request: invalid email' }, 400, headers);
+  }
+
+  const existing = await kv.get(['auth', 'users', email]);
+  if (!existing.value) {
+    return json({ error: 'Not Found: user does not exist' }, 404, headers);
+  }
+
+  await kv.delete(['auth', 'users', email]);
+
+  return json({ status: 'ok', deleted: { email } }, 200, headers);
+}
+
 export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const headers = new Headers({ 'content-type': 'application/json' });
@@ -260,6 +289,10 @@ export async function handleRequest(req: Request): Promise<Response> {
 
   if (url.pathname === '/auth/login') {
     return await handleAuthLogin(req, headers);
+  }
+
+  if (url.pathname === '/auth/user') {
+    return await handleAuthDeleteUser(req, headers);
   }
 
   return json({ error: 'Not Found' }, 404, headers);
